@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>HSV to RGB LED Controller</title>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.0/nouislider.min.css">
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+        <link rel="stylesheet" href="server.css">
+    </head>
+
+    <body class="darkmode">
+
+        <div class="container">
+            
+            <div class="top">
+                
+                <div style="margin-top: 40px;"></div>
+                
+                <!--colorBox-->
+                <div class="color-box" id="colorBox" style="justify-self: center;"></div>
+                <p id="label-a">RGB: <span id="rgbText">255, 0, 0</span></p>
+                
+                <div style="margin-top: 15px;"></div>
+
+                <!--Sliders-->
+                <button id="darkmodebutton">Theme</button>
+                <div style="margin-top: 30px;"></div>
+
+                <div>
+                    
+                    <label id="label-a" >Hue (0-360): <span id="hVal">0</span></label><br>
+                    <input type="range" id="hue" min="0" max="360" value="0" class="slider"><br>
+                </div>
+
+                <label id="label-a" >Saturation (0-100%): <span id="sVal">100</span></label><br>
+                <input type="range" id="sat" min="0" max="100" value="100" class="slider"><br>
+
+                <label id="label-a" >Value (0-100%): <span id="vVal">100</span></label><br>
+                <input type="range" id="val" min="0" max="100" value="100" class="slider"><br>
+
+                <div style="margin-top: 15px;"></div>
+            </div>
+
+
+            <div class="middle">
+                <!---->
+                <label id="label-a" >Fill Range: <span id="fillRangeVal">0 - 10</span></label>
+                <div id="fillRangeSlider" class="slider"></div><br>
+
+                <label id="label-a" >Set Index: <span id="setIndexVal">0</span></label><br>
+                <input type="range" id="index" min="0" max="238" value="0" class="slider"><br><br>
+            </div>
+
+            <div class="bottom">
+                <button class="general" id="fillBtn">FILL</button>
+                <button class="general" id="setBtn">SET</button>
+                <button class="general" id="clearBtn">CLEAR</button>
+            </div>
+
+        </div>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.0/nouislider.min.js"></script>
+        <script src="server.js"></script>
+    </body>
+</html>
