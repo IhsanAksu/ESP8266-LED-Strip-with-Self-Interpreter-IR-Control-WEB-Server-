@@ -1,11 +1,11 @@
 #include <Arduino.h>
 
-//NeoPixel
+// NeoPixel
 #include <Adafruit_NeoPixel.h>
 #ifdef __AVR__
- #include <avr/power.h> // Required for 16 MHz Adafruit Trinket
+#include <avr/power.h> // Required for 16 MHz Adafruit Trinket
 #endif
-#define LED_PIN   14 
+#define LED_PIN 14
 #define LED_COUNT 239
 Adafruit_NeoPixel pixels(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -13,12 +13,12 @@ uint8_t brightness = 100;
 
 //
 
-//Compiler
-String programNames[4] = {"-","-","-","-"};
+// Compiler
+String programNames[4] = {"-", "-", "-", "-"};
 String programs[4];
 String tempString;
 
-int16_t xv[] = {0,0,0,0,0,0,0,0,0,0};
+int16_t xv[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 int8_t currentProgram = -1;
 int32_t currentProgramLineG = 0;
@@ -27,61 +27,228 @@ int32_t sleepIndex = 0;
 int8_t cursorIndex = 0;
 //
 
-//WIFI
+// WIFI
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 
-const char* ssid = "ssid";
-const char* password = "password";
+const char *ssid = "router001";
+const char *password = "001wifiaccess";
+unsigned long previousCheck = 0;
+const unsigned long checkInterval = 5000;
 ESP8266WebServer server(80);
 //
 
-//HTML&CSS&JS
-String htmlContentF(){
-String htmlContent = R"rawliteral(
+// HTML&CSS&JS
+
+String helpText()
+{
+    String helpContent = R"rawliteral(
+-'/set?r= &g= &b= &n='
+  -'/fill?r= &g= &b= &s= &f='
+  -'/clear'
+  -'/cursor?n='
+  
+  -'/func?cmd=x&val=y'
+    (x,y):
+      add, 'ScriptName - Script'   'add the script which named 'ScriptName'
+      del, Index                   'delete programs[n]'
+      list,                        'show script names list'
+      run, Index                   'run programs[n]'
+
+  -SET(r.g.b.n):            'pixels[n] = (r,g,b)'
+  -FILL(r.g.b.s.f):         'pixels[s->f] = (r,g,b)'
+  -CLEAR():                 'pixels.clear();'
+  -CURSOR(n):               'cursor->startIndexOffset'
+  -SLEEP(t):                'delay(t);'
+  -JMP(n):                  'Jump for n foward or backward (-+n), -1 to return current command'
+  -IFJMP(x.v.n):            'if xv[x] == v: jump for n times (-+n)'
+  -DEFINE(x.v):             'xv[x] = v'
+  -ADD(x.v):                'xv[x] += v'
+  -END():                   'current program to -1 (not running), currentline to 0'
+
+)rawliteral";
+    return helpContent;
+}
+String mainHTML()
+{
+    String htmlContent = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>HSV to RGB LED Controller</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.0/nouislider.min.css">
-<style>
-  body { font-family: Arial, sans-serif; padding: 20px; }
-  .slider { width: 300px; margin: 10px 0; }
-  .color-box { width: 100px; height: 100px; margin-top: 20px; border: 1px solid #000; }
-  button { margin: 5px; }
-</style>
-</head>
-<body>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>HSV to RGB LED Controller</title>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.0/nouislider.min.css">
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+        <link rel="stylesheet" href="server.css">
+    </head>
 
-<h2>HSV to RGB LED Controller</h2>
+    <body class="darkmode">
 
-<label>Hue (0-360): <span id="hVal">0</span></label><br>
-<input type="range" id="hue" min="0" max="360" value="0" class="slider"><br>
+        <div class="container">
+            
+            <div class="top">
+                
+                <div style="margin-top: 40px;"></div>
+                
+                <!--colorBox-->
+                <div class="color-box" id="colorBox" style="justify-self: center;"></div>
+                <p id="label-a">RGB: <span id="rgbText">255, 0, 0</span></p>
+                
+                <div style="margin-top: 15px;"></div>
 
-<label>Saturation (0-100%): <span id="sVal">100</span></label><br>
-<input type="range" id="sat" min="0" max="100" value="100" class="slider"><br>
+                <!--Sliders-->
+                <button id="darkmodebutton">Theme</button>
+                <div style="margin-top: 30px;"></div>
 
-<label>Value (0-100%): <span id="vVal">100</span></label><br>
-<input type="range" id="val" min="0" max="100" value="100" class="slider"><br>
+                <div>
+                    
+                    <label id="label-a" >Hue (0-360): <span id="hVal">0</span></label><br>
+                    <input type="range" id="hue" min="0" max="360" value="0" class="slider"><br>
+                </div>
 
-<hr>
+                <label id="label-a" >Saturation (0-100%): <span id="sVal">100</span></label><br>
+                <input type="range" id="sat" min="0" max="100" value="100" class="slider"><br>
 
-<label>Fill Range: <span id="fillRangeVal">0 - 10</span></label>
-<div id="fillRangeSlider" class="slider"></div><br>
+                <label id="label-a" >Value (0-100%): <span id="vVal">100</span></label><br>
+                <input type="range" id="val" min="0" max="100" value="100" class="slider"><br>
 
-<label>Set Index: <span id="setIndexVal">0</span></label><br>
-<input type="range" id="index" min="0" max="238" value="0" class="slider"><br><br>
+                <div style="margin-top: 15px;"></div>
+            </div>
 
-<button id="fillBtn">Fill</button>
-<button id="setBtn">Set</button>
-<button id="clearBtn">Clear</button>
 
-<div class="color-box" id="colorBox"></div>
-<p>RGB: <span id="rgbText">255, 0, 0</span></p>
+            <div class="middle">
+                <!---->
+                <label id="label-a" >Fill Range: <span id="fillRangeVal">0 - 10</span></label>
+                <div id="fillRangeSlider" class="slider"></div><br>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.0/nouislider.min.js"></script>
-<script>
+                <label id="label-a" >Set Index: <span id="setIndexVal">0</span></label><br>
+                <input type="range" id="index" min="0" max="238" value="0" class="slider"><br><br>
+            </div>
+
+            <div class="bottom">
+                <button class="general" id="fillBtn">FILL</button>
+                <button class="general" id="setBtn">SET</button>
+                <button class="general" id="clearBtn">CLEAR</button>
+            </div>
+
+        </div>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.0/nouislider.min.js"></script>
+        <script src="server.js"></script>
+    </body>
+</html>
+
+)rawliteral";
+    return htmlContent;
+}
+
+String mainCSS()
+{
+    String cssContent = R"rawliteral(
+:root{
+  --base-color: white;
+  --base-variant: #e8e9ed;
+  --text-color: #111528;
+  --secondary-text: #232738;
+  --primary-color: #3a435d;
+  --accent-color: #0071ff;
+}
+.darkmode{
+  --base-color: #080a1b;
+  --base-variant: #101425;
+  --text-color: #ffffff;
+  --secondary-text: #a4a5b8;
+  --primary-color: #3a435d;
+  --accent-color: #0071ff;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body { 
+    font-family: 'Nunito Sans', sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background:#000000;
+}
+
+div.container {
+    border-style: solid;
+    border-color: var(--secondary-text);
+    border-width: 0px;
+    width: 370px;
+    height: 100%;
+    background: var(--base-color);
+    border-radius: 30px;
+}
+
+div.top {
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+}
+
+div.bottom {
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+}
+
+div.middle {
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+}
+
+.slider { 
+    width: 300px; margin: 10px 0;
+    margin-left: 30px;
+}
+.color-box { 
+    width: 100px; height: 100px; margin-top: 20px; border: 1px solid #000; 
+}
+button.general { 
+    font-size: 1.5em;
+    font-weight: 500;
+    margin: 5px; 
+    width: 100px;
+    height: 50px;
+    border-radius: 3px;
+    border-style: hidden;
+    background-color: var(--accent-color);
+    color: #ffffff;
+}
+
+#label-a {
+    text-decoration: solid;
+    font-size: 1.0em;
+    font-weight: 700;
+    color: var(--text-color);
+}
+
+#darkmodebutton {
+    font-size: 1em;
+    font-weight: 500;
+    margin: 5px; 
+    width: 100px;
+    height: 50px;
+    border-radius: 3px;
+    border-style: hidden;
+    background-color: var(--accent-color);
+    color: #ffffff;
+}
+)rawliteral";
+    return cssContent;
+}
+
+String mainJS()
+{
+    String cssContent = R"rawliteral(
 // HSV → RGB conversion
 function hsvToRgb(h, s, v) {
     s /= 100; v /= 100;
@@ -116,7 +283,7 @@ function updateColor() {
 // Initialize Fill Range Slider (two handles)
 var fillSlider = document.getElementById('fillRangeSlider');
 noUiSlider.create(fillSlider, {
-    start: [0, 10],
+    start: [50, 200],
     connect: true,
     range: { min: 0, max: 238 },
     step: 1,
@@ -154,6 +321,12 @@ function sendColor(action) {
     xhr.send();
 }
 
+const btn = document.getElementById('darkmodebutton');
+
+  btn.addEventListener('click', () => {
+    document.body.classList.toggle('darkmode');
+  });
+
 // Event listeners
 document.getElementById('hue').addEventListener('input', updateColor);
 document.getElementById('sat').addEventListener('input', updateColor);
@@ -166,17 +339,15 @@ document.getElementById('clearBtn').addEventListener('click', ()=>sendColor('cle
 
 // Initialize
 updateColor();
-document.getElementById('setIndexVal').textContent=document.getElementById('index').value;
-</script>
-</body>
-</html>
 
+document.getElementById('setIndexVal').textContent=document.getElementById('index').value;
 )rawliteral";
-return htmlContent;
+    return cssContent;
 }
 
-String editorContentF(){
-String htmlContent = R"rawliteral(
+String editorHTML()
+{
+    String htmlContent = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -270,192 +441,245 @@ document.getElementById('runBtn').addEventListener('click', ()=>{
 </html>
 
 )rawliteral";
-return htmlContent;
+    return htmlContent;
 }
 //
 
-
-//IR
+// IR
 #include "PinDefinitionsAndMore.h"
 #include "TinyIRReceiver.hpp"
 #define USE_EXTENDED_NEC_PROTOCOL
 
 #if !defined(STR_HELPER)
-    #define STR_HELPER(x) #x
-    #define STR(x) STR_HELPER(x)
+#define STR_HELPER(x) #x
+#define STR(x) STR_HELPER(x)
 #endif
 bool pixelPower = true;
+bool manualRGB = false;
 uint8_t NPR = 0;
 uint8_t NPG = 0;
 uint8_t NPB = 0;
 
 //
 
-//NeoPixelSetup
+// NeoPixelSetup
 
-void NeoPixelSetup(){
-    #if defined(__AVR_ATtiny85__) && (F_CPU == 16000000)
-        clock_prescale_set(clock_div_1);
-    #endif
-    pixels.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
-        pixels.show();            // Turn OFF all pixels ASAP
+void NeoPixelSetup()
+{
+#if defined(__AVR_ATtiny85__) && (F_CPU == 16000000)
+    clock_prescale_set(clock_div_1);
+#endif
+    pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
+    pixels.show();  // Turn OFF all pixels ASAP
     pixels.setBrightness(brightness);
 }
 
-void colorWipe(uint32_t color, int wait) {
-  for(int i=0; i<pixels.numPixels(); i++) { // For each pixel in strip...
-    pixels.setPixelColor(i, color);         //  Set pixel's color (in RAM)
-    pixels.show();                          //  Update strip to match
-    delay(wait);                           //  Pause for a moment
-  }
+void colorWipe(uint32_t color, int wait)
+{
+    for (int i = 0; i < pixels.numPixels(); i++)
+    {                                   // For each pixel in strip...
+        pixels.setPixelColor(i, color); //  Set pixel's color (in RAM)
+        pixels.show();                  //  Update strip to match
+        delay(wait);                    //  Pause for a moment
+    }
 }
 //
 
-//WIFI
+// WIFI
 
-String removeWhitespace(String input) {
-  String result = "";
-  for (int i = 0; i < input.length(); i++) {
-    char c = input[i];
-    if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
-      result += c;
+String removeWhitespace(String input)
+{
+    String result = "";
+    for (int i = 0; i < input.length(); i++)
+    {
+        char c = input[i];
+        if (c != ' ' && c != '\t' && c != '\n' && c != '\r')
+        {
+            result += c;
+        }
     }
-  }
-  return result;
-}
-
-void handleRoot() {  
-  server.send(200,"text/html", htmlContentF());
-  Serial.println("requested: " + server.uri());
-}
-void handleEditor() {  
-  server.send(200,"text/html", editorContentF());
-  Serial.println("requested: " + server.uri());
+    return result;
 }
 
-void setHandle(){
-    if(server.hasArg("r") && server.hasArg("g") && server.hasArg("b") && server.hasArg("n")){
-    pixels.setPixelColor(cursorIndex + server.arg("n").toInt(), pixels.Color(server.arg("r").toInt(), server.arg("g").toInt(), server.arg("b").toInt()));
-    pixels.show();
-    server.send(200,"text/plain","OK.");
-    }
-    else{
-    server.send(200,"text/plain","ERROR.");
-    }
-    
+void handleRoot()
+{
+    server.send(200, "text/html", mainHTML());
+    Serial.println("requested: " + server.uri());
 }
 
-void fillHandle(){
-    if(server.hasArg("r") && server.hasArg("g") && server.hasArg("b") && server.hasArg("s") && server.hasArg("f")){
-    
-    pixels.fill(pixels.Color(server.arg("r").toInt(), server.arg("g").toInt(), server.arg("b").toInt()),cursorIndex + server.arg("s").toInt(), server.arg("f").toInt()-(server.arg("s").toInt() + cursorIndex)+1);
-    pixels.show();
-    server.send(200,"text/plain","OK.");
-    }
-    else{
-    server.send(200,"text/plain","ERROR.");
-    }
-    
+void handleCSS()
+{
+    server.send(200, "text/css", mainCSS());
+    Serial.println("requested: " + server.uri());
 }
-void clearHandle(){
+void handleJS()
+{
+    server.send(200, "text/javascript", mainJS());
+    Serial.println("requested: " + server.uri());
+}
+void handleEditor()
+{
+    server.send(200, "text/html", editorHTML());
+    Serial.println("requested: " + server.uri());
+}
+
+void handleHelp(){
+    server.send(200, "text/plain", helpText());
+    Serial.println("requested: " + server.uri());
+}
+
+void setHandle()
+{
+    if (server.hasArg("r") && server.hasArg("g") && server.hasArg("b") && server.hasArg("n"))
+    {
+        pixels.setPixelColor(cursorIndex + server.arg("n").toInt(), pixels.Color(server.arg("r").toInt(), server.arg("g").toInt(), server.arg("b").toInt()));
+        pixels.show();
+        server.send(200, "text/plain", "OK.");
+    }
+    else
+    {
+        server.send(200, "text/plain", "ERROR.");
+    }
+}
+
+void fillHandle()
+{
+    if (server.hasArg("r") && server.hasArg("g") && server.hasArg("b") && server.hasArg("s") && server.hasArg("f"))
+    {
+
+        pixels.fill(pixels.Color(server.arg("r").toInt(), server.arg("g").toInt(), server.arg("b").toInt()), cursorIndex + server.arg("s").toInt(), server.arg("f").toInt() - (server.arg("s").toInt() + cursorIndex) + 1);
+        pixels.show();
+        server.send(200, "text/plain", "OK.");
+    }
+    else
+    {
+        server.send(200, "text/plain", "ERROR.");
+    }
+}
+void clearHandle()
+{
     pixels.clear();
-    pixels.show();  
-    server.send(200,"text/plain","OK.");
+    pixels.show();
+    server.send(200, "text/plain", "OK.");
 }
 
-void cursorHandle(){
-    if(server.hasArg("n")){
-    cursorIndex = (int8_t)server.arg("n").toInt();
-    server.send(200,"text/plain","OK.");
+void cursorHandle()
+{
+    if (server.hasArg("n"))
+    {
+        cursorIndex = (int8_t)server.arg("n").toInt();
+        server.send(200, "text/plain", "OK.");
     }
-    else{
-        server.send(200,"text/plain","OK.");
+    else
+    {
+        server.send(200, "text/plain", "OK.");
     }
 }
 
-void funcHandle(){
-    if(server.hasArg("cmd") && server.hasArg("val")){
+void funcHandle()
+{
+    if (server.hasArg("cmd") && server.hasArg("val"))
+    {
         String ret;
         String cmd = server.arg("cmd");
         String val = server.arg("val");
-    if(cmd == "list"){
-        ret = "{"+String(programNames[0]) + ',' + String(programNames[1]) + ',' + String(programNames[2]) + ',' + String(programNames[3])+"}";
-        server.send(200,"text/plain",ret);
-    }
-    else if(cmd == "add"){
-        int8_t index = -1;
-        for (int8_t i = 0; i < 3; i++) {
-            if (programNames[i] == "-") {
-                index = i;
-                break;
+        if (cmd == "list")
+        {
+            ret = "{" + String(programNames[0]) + ',' + String(programNames[1]) + ',' + String(programNames[2]) + ',' + String(programNames[3]) + "}";
+            server.send(200, "text/plain", ret);
+        }
+        else if (cmd == "add")
+        {
+            int8_t index = -1;
+            for (int8_t i = 0; i < 3; i++)
+            {
+                if (programNames[i] == "-")
+                {
+                    index = i;
+                    break;
+                }
+            }
+            if (index == -1)
+            {
+                server.send(200, "text/plain", "ERROR: NO SPACE TO ADD.");
+            }
+            else
+            {
+                programs[index] = server.arg("val").substring(server.arg("val").indexOf('-') + 1);
+                programNames[index] = server.arg("val").substring(0, server.arg("val").indexOf('-'));
+                programs[index] = removeWhitespace(programs[index]);
+                server.send(200, "text/plain", "OK.");
             }
         }
-        if(index == -1){
-            server.send(200,"text/plain","ERROR: NO SPACE TO ADD.");
+        else if (cmd == "del")
+        {
+            programs[server.arg("val").toInt()] = "";
+            programNames[server.arg("val").toInt()] = "-";
+            server.send(200, "text/plain", "OK.");
         }
-        else{
-            programs[index] = server.arg("val").substring(server.arg("val").indexOf('-')+1);
-            programNames[index] = server.arg("val").substring(0,server.arg("val").indexOf('-'));
-            programs[index] = removeWhitespace(programs[index]);
-            server.send(200,"text/plain","OK.");
+        else if (cmd == "read")
+        {
+            ret = String(programNames[server.arg("val").toInt()]) + '-' + String(programs[server.arg("val").toInt()]);
+            server.send(200, "text/plain", ret);
+        }
+        else if (cmd == "run")
+        {
+            currentProgram = server.arg("val").toInt();
+            currentProgramLineG = 0;
+            server.send(200, "text/plain", "OK.");
         }
     }
-    else if(cmd == "del"){
-        programs[server.arg("val").toInt()] = "";
-        programNames[server.arg("val").toInt()] = "-";
-        server.send(200,"text/plain","OK.");
-    }
-    else if(cmd == "read"){
-        ret = String(programNames[server.arg("val").toInt()]) + '-' + String(programs[server.arg("val").toInt()]);
-        server.send(200,"text/plain",ret);
-    }
-    else if(cmd == "run"){
-        currentProgram = server.arg("val").toInt();
-        currentProgramLineG = 0;
-        server.send(200,"text/plain","OK.");
-    }
-    }
-    else{
-        server.send(200,"text/plain","OK.");
+    else
+    {
+        server.send(200, "text/plain", "OK.");
     }
 }
 
-void endHandle() {
+void endHandle()
+{
     currentProgram = -1;
     currentProgramLineG = 0;
     server.send(200, "text/plain", "OK.");
 }
 
-void resetHandle() {
+void resetHandle()
+{
     pixels.clear();
     pixels.show();
     server.send(200, "text/plain", "OK.");
     ESP.restart();
 }
 
-void brightHandle() {
-    if(server.hasArg("n")){
-        if(server.arg("n").toInt()<256 && server.arg("n").toInt()>0){
+void brightHandle()
+{
+    if (server.hasArg("n"))
+    {
+        if (server.arg("n").toInt() < 256 && server.arg("n").toInt() > 0)
+        {
             brightness = server.arg("n").toInt();
             pixels.setBrightness(brightness);
             pixels.show();
             server.send(200, "text/plain", "OK.");
         }
-        else{
-            server.send(200, "text/plain", "ERROR: 'n' must between 0,255.");
+        else
+        {
+            server.send(200, "text/plain", "ERROR: 'n' must between 0,220.");
         }
     }
-    else{
+    else
+    {
         server.send(200, "text/plain", "ERROR: 'n' not found.");
     }
 }
 
-void handleNotFound() {
-  Serial.print("Unknown request: ");  
-  Serial.println(server.uri());  // Print unknown request path
-  server.send(404, "text/plain", "Not found");
+void handleNotFound()
+{
+    Serial.print("Unknown request: ");
+    Serial.println(server.uri()); // Print unknown request path
+    server.send(404, "text/plain", "Not found");
 }
-void wifiSetup(){
+void wifiSetup()
+{
     WiFi.begin(ssid, password);
     Serial.print("Connecting");
     while (WiFi.status() != WL_CONNECTED)
@@ -470,6 +694,9 @@ void wifiSetup(){
     Serial.println(WiFi.macAddress());
 
     server.on("/", handleRoot);
+    server.on("/server.css", handleCSS);
+    server.on("/server.js", handleJS);
+    server.on("/help", handleHelp);
     server.on("/editor", handleEditor);
     server.on("/set", setHandle);
     server.on("/fill", fillHandle);
@@ -478,114 +705,261 @@ void wifiSetup(){
     server.on("/func", funcHandle);
     server.on("/end", endHandle);
     server.on("/reset", resetHandle);
-    
+
     server.on("/brightness", brightHandle);
     server.onNotFound(handleNotFound);
 
     server.begin();
     Serial.println("HTTP server started");
+
+    String ip = WiFi.localIP().toString();
+    Serial.println(ip);
+    ip = ip.substring(ip.lastIndexOf('.') + 1);
+    Serial.println(ip);
+    pixels.clear();
+    int lastIndex = 0;
+    for (int i = 0; i < ip.length(); i++)
+    {
+        pixels.setPixelColor(lastIndex, pixels.Color(0, 0, 255));
+        pixels.show();
+        lastIndex += 1;
+        for (int i2 = 0; i2 < (ip[i] - '0'); i2++)
+        {
+            Serial.println(lastIndex);
+            pixels.setPixelColor(lastIndex, pixels.Color(0, 255, 0));
+            pixels.show();
+            lastIndex++;
+        }
+        pixels.setPixelColor(lastIndex, pixels.Color(0, 0, 255));
+        pixels.show();
+    }
 }
 
 //
 
-//NeoPixel
-void IRToNeoPixel(uint8_t cmd){
-    if(cmd == 2){pixelPower = false; pixels.clear(); pixels.show();}
-    if(cmd == 3){pixelPower = true;}
-    if(pixelPower){
-    switch(cmd){
-        case 0:
-            if(brightness+50<255){
-                brightness +=50;
-            }
-            else{
-                brightness =255;
-            }
-            pixels.setBrightness(brightness);
-            pixels.show();
-            break;
-        case 1:
-            if(brightness+50>0){
-                brightness -= 50;
-            }
-            else{
-                brightness = 0;
-            }
-            pixels.setBrightness(brightness);
-            pixels.show();
-            break;
-            
-        case 4:
-            NPR = 255;
-            NPG = 0;
-            NPB = 0;
-            break;
-        case 5:
-            NPR = 0;
-            NPG = 255;
-            NPB = 0;
-            break;
-        case 6:
-            NPR = 0;
-            NPG = 0;
-            NPB = 255;
-            break;
-        case 7:
-            NPR = 255;
-            NPG = 255;
-            NPB = 255;
-            break;
-        case 8:
-            NPR = 240;
-            NPG = 50;
-            NPB = 0;
-            break;
-        case 9:
-            NPR = 50;
-            NPG = 240;
-            NPB = 0;
-            break;
-        case 10:
-            NPR = 0;
-            NPG = 50;
-            NPB = 240;
-            break;
-        case 11:
-            NPR = 255;
-            NPG = 0;
-            NPB = 0;
-            break;
-        case 12:
-            NPR = 255;
-            NPG = 0;
-            NPB = 0;
-            break;
-        case 13:
-            NPR = 255;
-            NPG = 0;
-            NPB = 0;
-            break;
+void IRLoop();
+
+// NeoPixel
+void IRToNeoPixel(uint8_t cmd)
+{
+    if (cmd == 2)
+    {
+        pixelPower = false;
+        pixels.clear();
+        pixels.show();
     }
-    pixels.clear();
-    pixels.fill(pixels.Color(NPR, NPG, NPB),0,LED_COUNT);
-    Serial.println(NPR);
-    Serial.println(NPG);
-    Serial.println(NPB);
-    pixels.show();
+    if (cmd == 3)
+    {
+        pixelPower = true;
     }
-    else{
-        if(cmd == 11){
+    if (pixelPower)
+    {
+        if (manualRGB)
+        {
+            pixels.setPixelColor(0, pixels.Color(255, 0, 0));
+            switch (cmd)
+            {
+            case 15:
+                manualRGB = false;
+                break;
+            case 4:
+                if (NPR + 5 < 255)
+                {
+                    NPR += 5;
+                }
+                else
+                {
+                    NPR = 255;
+                }
+                break;
+            case 5:
+                if (NPG + 5 < 255)
+                {
+                    NPG += 5;
+                }
+                else
+                {
+                    NPG = 255;
+                }
+                break;
+            case 6:
+                if (NPB + 5 < 255)
+                {
+                    NPB += 5;
+                }
+                else
+                {
+                    NPB = 255;
+                }
+                break;
+            case 8:
+                if (NPR - 5 > 0)
+                {
+                    NPR -= 5;
+                }
+                else
+                {
+                    NPR = 0;
+                }
+                break;
+            case 9:
+                if (NPG - 5 > 0)
+                {
+                    NPG -= 5;
+                }
+                else
+                {
+                    NPG = 0;
+                }
+                break;
+            case 10:
+                if (NPB - 5 > 0)
+                {
+                    NPB -= 5;
+                }
+                else
+                {
+                    NPB = 0;
+                }
+                break;
+            }
+            pixels.clear();
+            pixels.setPixelColor(0, pixels.Color(255, 0, 0));
+            pixels.fill(pixels.Color(NPR, NPG, NPB), 1, LED_COUNT);
+            Serial.println(NPR);
+            Serial.println(NPG);
+            Serial.println(NPB);
+            pixels.show();
+        }
+        else
+        {
+            switch (cmd)
+            {
+            case 0:
+                if (brightness + 5 < 230)
+                {
+                    brightness += 5;
+                }
+                else
+                {
+                    brightness = 230;
+                }
+                Serial.print("B:");
+                Serial.println(brightness);
+                pixels.setBrightness(brightness);
+                pixels.show();
+                break;
+            case 1:
+                if (brightness - 5 > 0)
+                {
+                    brightness -= 5;
+                }
+                else
+                {
+                    brightness = 0;
+                }
+                Serial.print("B:");
+                Serial.println(brightness);
+                pixels.setBrightness(brightness);
+                pixels.show();
+                break;
+
+            case 4:
+                NPR = 255;
+                NPG = 0;
+                NPB = 0;
+                break;
+            case 5:
+                NPR = 0;
+                NPG = 255;
+                NPB = 0;
+                break;
+            case 6:
+                NPR = 0;
+                NPG = 0;
+                NPB = 255;
+                break;
+            case 7:
+                NPR = 255;
+                NPG = 255;
+                NPB = 255;
+                break;
+            case 8:
+                NPR = 255;
+                NPG = 65;
+                NPB = 0;
+                break;
+            case 9:
+                NPR = 157;
+                NPG = 255;
+                NPB = 0;
+                break;
+            case 10:
+                NPR = 0;
+                NPG = 140;
+                NPB = 255;
+                break;
+            case 12:
+                NPR = 255;
+                NPG = 119;
+                NPB = 0;
+                break;
+            case 13:
+                NPR = 48;
+                NPG = 242;
+                NPB = 233;
+                break;
+            case 14:
+                NPR = 123;
+                NPG = 48;
+                NPB = 242;
+                break;
+            case 15:
+                manualRGB = true;
+                pixels.setPixelColor(0, pixels.Color(255, 0, 0));
+                break;
+            case 20:
+                NPR = 255;
+                NPG = 139;
+                NPB = 15;
+                break;
+            case 19:
+                pixels.clear();
+                pixels.fill(pixels.Color(255, 255, 255), 0, 40);
+                pixels.fill(pixels.Color(255, 255, 255), 94, 74);
+                pixels.fill(pixels.Color(255, 255, 255), 208, 30);
+                pixels.show();
+                return;
+                break;
+            }
+            pixels.clear();
+            if (!manualRGB)
+            {
+                pixels.fill(pixels.Color(NPR, NPG, NPB), 0, LED_COUNT);
+            }
+            Serial.println(NPR);
+            Serial.println(NPG);
+            Serial.println(NPB);
+            pixels.show();
+        }
+    }
+    else
+    {
+        if (cmd == 11)
+        {
             String ip = WiFi.localIP().toString();
             Serial.println(ip);
-            ip = ip.substring(ip.lastIndexOf('.')+1);
+            ip = ip.substring(ip.lastIndexOf('.') + 1);
             Serial.println(ip);
             pixels.clear();
-            int lastIndex=0;
-            for(int i = 0; i<ip.length(); i++){
+            int lastIndex = 0;
+            for (int i = 0; i < ip.length(); i++)
+            {
                 pixels.setPixelColor(lastIndex, pixels.Color(0, 0, 255));
                 pixels.show();
                 lastIndex += 1;
-                for (int i2 = 0; i2 < (ip[i] - '0'); i2++) {
+                for (int i2 = 0; i2 < (ip[i] - '0'); i2++)
+                {
                     Serial.println(lastIndex);
                     pixels.setPixelColor(lastIndex, pixels.Color(0, 255, 0));
                     pixels.show();
@@ -596,40 +970,27 @@ void IRToNeoPixel(uint8_t cmd){
             }
         }
     }
+    Serial.print("manual:");
+    Serial.println(manualRGB);
 }
 //
 
-//IR
-void IRSetup(){
-    pinMode(2,OUTPUT);
+// IR
+void IRSetup()
+{
+    pinMode(2, OUTPUT);
     digitalWrite(2, 0);
     Serial.println();
-    if (!initPCIInterruptForTinyReceiver()) {
+    if (!initPCIInterruptForTinyReceiver())
+    {
         Serial.println(F("No interrupt available for pin " STR(IR_RECEIVE_PIN))); // optimized out by the compiler, if not required :-)
     }
     Serial.println(F("Ready to receive NEC IR signals at pin " STR(IR_RECEIVE_PIN)));
-    String ip = WiFi.localIP().toString();
-            Serial.println(ip);
-            ip = ip.substring(ip.lastIndexOf('.')+1);
-            Serial.println(ip);
-            pixels.clear();
-            int lastIndex=0;
-            for(int i = 0; i<ip.length(); i++){
-                pixels.setPixelColor(lastIndex, pixels.Color(0, 0, 255));
-                pixels.show();
-                lastIndex += 1;
-                for (int i2 = 0; i2 < (ip[i] - '0'); i2++) {
-                    Serial.println(lastIndex);
-                    pixels.setPixelColor(lastIndex, pixels.Color(0, 255, 0));
-                    pixels.show();
-                    lastIndex++;
-                }
-                pixels.setPixelColor(lastIndex, pixels.Color(0, 0, 255));
-                pixels.show();
-            }
 }
-void IRLoop(){
-    if (TinyReceiverDecode()) {
+void IRLoop()
+{
+    if (TinyReceiverDecode())
+    {
         uint8_t lastIRCommand = TinyIRReceiverData.Command;
         Serial.print("IR Command:");
         Serial.println(lastIRCommand);
@@ -641,147 +1002,198 @@ void IRLoop(){
 }
 //
 
-//Compiler
-void getArgs(char *value, int32_t *args){
-  tempString = value;
-  int8_t pointIndex = -1;
-  int8_t cArg = 0;
-  while(true){
-    String tmpArg = tempString.substring(pointIndex+1, tempString.indexOf('.', pointIndex+1));
-    if(tmpArg.indexOf('x') != -1){
-        int xIndex = (int)tmpArg.substring(1).toInt();
-        args[cArg] = xv[xIndex];
+// Compiler
+void getArgs(char *value, int32_t *args)
+{
+    tempString = value;
+    int8_t pointIndex = -1;
+    int8_t cArg = 0;
+    while (true)
+    {
+        String tmpArg = tempString.substring(pointIndex + 1, tempString.indexOf('.', pointIndex + 1));
+        if (tmpArg.indexOf('x') != -1)
+        {
+            int xIndex = (int)tmpArg.substring(1).toInt();
+            args[cArg] = xv[xIndex];
+        }
+        else
+        {
+            args[cArg] = (int32_t)tmpArg.toInt();
+        }
+        pointIndex = tempString.indexOf('.', pointIndex + 1);
+        cArg += 1;
+        if (pointIndex == -1)
+        {
+            break;
+        }
     }
-    else{
-        args[cArg] = (int32_t)tmpArg.toInt();
-    }
-    pointIndex = tempString.indexOf('.',pointIndex+1);
-    cArg += 1;
-    if(pointIndex == -1){break;}
-  }
 }
 
-void compiler(char command[8], char value[20], int32_t S3){
-    int32_t args[5] = {0,0,0,0,0}; 
+void compiler(char command[8], char value[20], int32_t S3)
+{
+    int32_t args[5] = {0, 0, 0, 0, 0};
     String cmd = String(command);
-    getArgs(value,args);
+    getArgs(value, args);
 
-    if(cmd == "SET"){
+    if (cmd == "SET")
+    {
         Serial.println("SET " + String(cursorIndex + args[3]) + ":" + String(args[0]) + ',' + String(args[1]) + ',' + String(args[2]));
         pixels.setPixelColor(cursorIndex + args[3], pixels.Color(args[0], args[1], args[2]));
         pixels.show();
         currentProgramLineG = S3;
     }
-    else if(cmd == "FILL"){
-        Serial.println( "Fill from  " + String(cursorIndex + args[3]) + " to " + String(cursorIndex + args[4]) + ':' + String(args[0]) + ',' + String(args[1]) + ',' + String(args[2]));
-        pixels.fill(pixels.Color(args[0], args[1], args[2]),cursorIndex + args[3],args[4]-(args[3]+cursorIndex)+1);
+    else if (cmd == "FILL")
+    {
+        Serial.println("Fill from  " + String(cursorIndex + args[3]) + " to " + String(cursorIndex + args[4]) + ':' + String(args[0]) + ',' + String(args[1]) + ',' + String(args[2]));
+        pixels.fill(pixels.Color(args[0], args[1], args[2]), cursorIndex + args[3], args[4] - (args[3] + cursorIndex) + 1);
         pixels.show();
         currentProgramLineG = S3;
     }
-    else if(cmd == "CLEAR"){
+    else if (cmd == "CLEAR")
+    {
         pixels.clear();
         Serial.println("Cleared.");
         pixels.show();
         currentProgramLineG = S3;
     }
-    else if(cmd == "CURSOR"){
+    else if (cmd == "CURSOR")
+    {
         cursorIndex = args[0];
         Serial.println("New Cursor: " + String(cursorIndex));
         currentProgramLineG = S3;
     }
-    else if(cmd == "SLEEP"){
+    else if (cmd == "SLEEP")
+    {
         sleepValue = args[0];
         sleepIndex = millis();
         Serial.println("Sleeping for" + String(sleepValue));
         currentProgramLineG = S3;
     }
-    else if(cmd == "JMP"){
+    else if (cmd == "JMP")
+    {
         Serial.print("JumpedFrom " + String(currentProgramLineG) + " to ");
         int32_t lastIndex = S3;
-        for(int16_t i = 0; i < abs(args[0]); i++){
-        if(args[0] < 0){
-            lastIndex = programs[currentProgram].lastIndexOf(':',lastIndex-1);
-        }
-        else if (args[0] > 0){
-            lastIndex = programs[currentProgram].indexOf(':',lastIndex+1);
-        }
-        if(lastIndex == -1){lastIndex = 0;}
+        for (int16_t i = 0; i < abs(args[0]); i++)
+        {
+            if (args[0] < 0)
+            {
+                lastIndex = programs[currentProgram].lastIndexOf(':', lastIndex - 1);
+            }
+            else if (args[0] > 0)
+            {
+                lastIndex = programs[currentProgram].indexOf(':', lastIndex + 1);
+            }
+            if (lastIndex == -1)
+            {
+                lastIndex = 0;
+            }
         }
         currentProgramLineG = lastIndex + 1;
         Serial.println(currentProgramLineG);
     }
-    else if(cmd == "IFJMP"){
+    else if (cmd == "IFJMP")
+    {
         args[0] = xv[args[0]];
-        if(args[0] == args[1]){
-        Serial.println("Jumped.");
-        int32_t lastIndex = S3;
-        for(int16_t i = 0; i < abs(args[2]); i++){
-            if(args[0] < 0){
-            lastIndex = programs[currentProgram].lastIndexOf(':',lastIndex);
+        if (args[0] == args[1])
+        {
+            Serial.println("Jumped.");
+            int32_t lastIndex = S3;
+            for (int16_t i = 0; i < abs(args[2]); i++)
+            {
+                if (args[0] < 0)
+                {
+                    lastIndex = programs[currentProgram].lastIndexOf(':', lastIndex);
+                }
+                else if (args[0] > 0)
+                {
+                    lastIndex = programs[currentProgram].indexOf(':', lastIndex + 1);
+                }
+                if (lastIndex == -1)
+                {
+                    lastIndex = 0;
+                }
             }
-            else if (args[0] > 0){
-            lastIndex = programs[currentProgram].indexOf(':',lastIndex+1);
-            }
-            if(lastIndex == -1){lastIndex = 0;}
+            currentProgramLineG = lastIndex + 1;
         }
-        currentProgramLineG = lastIndex + 1;
+        else
+        {
+            currentProgramLineG = S3;
+            Serial.println("Continue.");
         }
-        else{currentProgramLineG = S3;Serial.println("Continue.");}
     }
-    else if(cmd == "DEFINE"){
-        Serial.println("xv[" + String(args[0]) + ']' + " to " + String(args[1]) );
+    else if (cmd == "DEFINE")
+    {
+        Serial.println("xv[" + String(args[0]) + ']' + " to " + String(args[1]));
         xv[args[0]] = args[1];
         currentProgramLineG = S3;
     }
-    else if(cmd == "ADD"){
-        Serial.println("xv[" + String(args[0]) + ']' + " to " + String(xv[args[0]]+args[1]) );
+    else if (cmd == "ADD")
+    {
+        Serial.println("xv[" + String(args[0]) + ']' + " to " + String(xv[args[0]] + args[1]));
         xv[args[0]] += args[1];
         currentProgramLineG = S3;
     }
-    else if(cmd == "END"){
+    else if (cmd == "END")
+    {
         Serial.println("Ended.");
         currentProgram = -1;
         currentProgramLineG = 0;
     }
-    
 }
 
-void ScriptReader(String Script, int32_t currentProgramLine){
-  int32_t S1 = Script.indexOf('(',currentProgramLine);
-  int32_t S2 = Script.indexOf("):",S1);
-  int32_t S3 = S2 + 2;
-  char command[8];
-  char value[20];
-  Script.substring(currentProgramLine, S1).toCharArray(command, sizeof(command));;
-  Script.substring(S1 + 1, S2).toCharArray(value, sizeof(value));
-  compiler(command, value, S3);
+void ScriptReader(String Script, int32_t currentProgramLine)
+{
+    int32_t S1 = Script.indexOf('(', currentProgramLine);
+    int32_t S2 = Script.indexOf("):", S1);
+    int32_t S3 = S2 + 2;
+    char command[8];
+    char value[20];
+    Script.substring(currentProgramLine, S1).toCharArray(command, sizeof(command));
+    ;
+    Script.substring(S1 + 1, S2).toCharArray(value, sizeof(value));
+    compiler(command, value, S3);
 }
 
-bool SleepHandler(){
-  return millis()-sleepIndex > sleepValue;
+bool SleepHandler()
+{
+    return millis() - sleepIndex > sleepValue;
 }
 
 //
 
-void setup() {
+void setup()
+{
     Serial.begin(115200);
     NeoPixelSetup();
     wifiSetup();
     IRSetup();
 }
 
-void loop() {
-    
+void loop()
+{
+
     IRLoop();
     server.handleClient();
-    if(currentProgram != -1){
-        if(SleepHandler()){
+    if (currentProgram != -1)
+    {
+        if (SleepHandler())
+        {
             ScriptReader(programs[currentProgram], currentProgramLineG);
         }
     }
+
+    if (millis() - previousCheck >= checkInterval)
+    {
+        previousCheck = millis();
+        if (WiFi.status() != WL_CONNECTED)
+        {
+            pixels.clear();
+            pixels.fill(pixels.Color(0, 255, 0), 0, 20);
+            pixels.fill(pixels.Color(0, 0, 255), 20, 20);
+            pixels.show();
+            Serial.println("WiFi disconnected! Restarting WiFi...");
+            WiFi.disconnect();
+            wifiSetup();
+        }
+    }
 }
-
-
-
-
-
